@@ -9,8 +9,11 @@ def on_event(pad, info):
     type = event.type
     if type == Gst.EventType.NAVIGATION:
         struct = event.get_structure()
-        if struct.get_string('event') == 'mouse-button-press':
-            print(struct)
+        print ('x: ', (struct.get_double('x')))
+        x = int(struct.get_double('x')[1])
+        y = int(struct.get_double('y')[1])
+        e = struct.get_string('event')
+        print('Event: %s x: %d y: %d' % (e, x, y))
     return Gst.PadProbeReturn.OK
 
 
@@ -20,7 +23,8 @@ Gst.init(None)
 
 pipeline = Gst.parse_launch(
 #    "rtspsrc location=rtsp://192.168.105.21:554?channel=0 latency=1 !  rtph264depay ! h264parse !  vaapih264dec low-latency=1 ! vaapisink"
-    "videotestsrc ! navigationtest ! videoconvert ! ximagesink"
+#    "videotestsrc ! navigationtest ! videoconvert ! ximagesink"
+    "videotestsrc pattern=snow ! video/x-raw,width=1280,height=800 ! autovideosink"
 )
 # start playing
 pipeline.set_state(Gst.State.PLAYING)
