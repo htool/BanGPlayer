@@ -1,4 +1,6 @@
 import gi
+import logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
@@ -9,11 +11,11 @@ def on_event(pad, info):
     type = event.type
     if type == Gst.EventType.NAVIGATION:
         struct = event.get_structure()
-        print ('x: ', (struct.get_double('x')))
-        x = int(struct.get_double('x')[1])
-        y = int(struct.get_double('y')[1])
+        x = int(struct.get_double('pointer_x')[1])
+        y = int(struct.get_double('pointer_y')[1])
         e = struct.get_string('event')
-        print('Event: %s x: %d y: %d' % (e, x, y))
+        if e == 'mouse-button-press' or e == 'mouse-button-release':
+            print('Event: %s x: %d y: %d' % (e, x, y))
     return Gst.PadProbeReturn.OK
 
 
