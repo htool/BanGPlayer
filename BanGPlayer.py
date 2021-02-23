@@ -75,7 +75,11 @@ def on_event(pad, info):
         if sendEvent == 1:
             print('Event: %s x: %d y: %d' % (e, x, y))
             b=touchbytes(int(time.time()),x,y,e,1)
-            s.send(b)
+            try:
+                s.send(b)
+            except socket.error as err:
+                print ("Error sending data: %s" % err)
+                # sys.exit(1)
             if e == 2:
                 sendEvent = 0
 
@@ -83,7 +87,7 @@ def on_event(pad, info):
 
 
 if len(sys.argv) != 2:
-    print('Usage: ./player.py <B&G MFD ip>')
+    print('Usage: ' + sys.argv[0] + ' <B&G MFD ip>')
     sys.exit(0)
 
 remoteIP = sys.argv[1]
@@ -93,18 +97,48 @@ remoteIP = sys.argv[1]
 # initialize GStreamer
 Gst.init(None)
 # build the pipeline
-launch = "rtspsrc location=rtsp://" + remoteIP + ":554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
+
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+except socket.error as err:
+    print ("Error creating socket: %s" % err)
+    sys.exit(1)
+
+try:
+    s.connect((remoteIP, 6633))
+except socket.gaierro as err:
+    print ("Address-related error connecting to server: %s" % err)
+    sys.exit(1)
+except socket.error as err:
+    print ("Connection error: %s" % err)
+    sys.exit(1)
+
+
+time.sleep(0.5)
+s.send(packets['hello'])
+time.sleep(0.5)
+s.send(packets['id'])
+print('Connected remote touchpad')
+
+pipeline = Gst.parse_launch('rtspsrc name=source latency=0 ! decodebin ! autovideosink')
+source = pipeline.get_by_name('source')
+source.props.location = 'rtsp://' + remoteIP + ':554/screenmirror'
+
+#launch = "rtspsrc location=rtsp://" + remoteIP + ":5554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
+#launch = "playbin uri=rtsp://localhost:8554/test uridecodebin0::source::latency=300 ! autovideosink"
 #    "videotestsrc ! navigationtest ! videoconvert ! ximagesink"
 #    "videotestsrc pattern=snow ! video/x-raw,width=1280,height=800 ! autovideosink"
-pipeline = Gst.parse_launch(launch)
+#pipeline = Gst.parse_launch(launch)
 # start playing
+
 pipeline.set_state(Gst.State.PLAYING)
 
 # for some reason no events from the vaapisink bin (first in the list), but the second bin (vaapih264dec) works OK
 bin = pipeline.children[1]
 # sink = 0, src = 1
 pad = bin.pads[0]
-print ('sendEvent: ', sendEvent)
+#pad = pipeline.children[0]
+
 pad.add_probe(Gst.PadProbeType.EVENT_UPSTREAM, on_event)
 
 # wait until EOS or error
@@ -115,13 +149,3 @@ msg = bus.timed_pop_filtered(
     Gst.CLOCK_TIME_NONE,
     Gst.MessageType.ERROR | Gst.MessageType.EOS
 )
-
-time.sleep(5)
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect((remoteIP, 6633))
-print('sending hello')
-s.send(packets['hello'])
-time.sleep(0.5)
-print('sending own id')
-time.sleep(0.5)
-s.send(packets['id'])
