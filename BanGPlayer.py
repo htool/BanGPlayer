@@ -106,7 +106,7 @@ except socket.error as err:
 
 try:
     s.connect((remoteIP, 6633))
-except socket.gaierro as err:
+except socket.gaierror as err:
     print ("Address-related error connecting to server: %s" % err)
     sys.exit(1)
 except socket.error as err:
