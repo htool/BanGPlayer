@@ -5,6 +5,8 @@ import logging
 import sys
 import socket
 import time
+import base64
+
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -15,8 +17,8 @@ from gi.repository import Gst
 sendEvent = 0
 
 packets = {
-    'hello': b'AAYAAUQD18M=',
-    'id': b'AHsAAkQD18MAVnVsY2FuIDEyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABWdWxjYW4gMTIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAuMC4wAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAEAAAAZAAAABQAAABAFAAMgBQADIAAAAIE='
+    'ping': 'AAYAAUQD18M=',
+    'auth': 'ACgAAwIAAAAAAGlQYWQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 }
 
 def decode_ping(payload):
@@ -92,12 +94,6 @@ if len(sys.argv) != 2:
 
 remoteIP = sys.argv[1]
 
-
-
-# initialize GStreamer
-Gst.init(None)
-# build the pipeline
-
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 except socket.error as err:
@@ -115,14 +111,23 @@ except socket.error as err:
 
 
 time.sleep(0.5)
-s.send(packets['hello'])
-time.sleep(0.5)
-s.send(packets['id'])
-print('Connected remote touchpad')
+print('Connecting to remotecontrold...')
+s.send(base64.b64decode(packets['ping']))
+#decode_ping_reply(s.recv(1024))
+time.sleep(1)
+print('Sending authenticate...')
+s.send(base64.b64decode(packets['auth']))
+#decode_authenticate(s.recv(1024))
+print('Connected')
+
+# initialize GStreamer
+Gst.init(None)
+# build the pipeline
+
 
 pipeline = Gst.parse_launch('rtspsrc name=source latency=0 ! decodebin ! autovideosink')
 source = pipeline.get_by_name('source')
-source.props.location = 'rtsp://' + remoteIP + ':554/screenmirror'
+source.props.location = 'rtsp://' + remoteIP + ':5554/screenmirror'
 
 #launch = "rtspsrc location=rtsp://" + remoteIP + ":5554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
 #launch = "playbin uri=rtsp://localhost:8554/test uridecodebin0::source::latency=300 ! autovideosink"
@@ -144,6 +149,7 @@ pad.add_probe(Gst.PadProbeType.EVENT_UPSTREAM, on_event)
 # wait until EOS or error
 bus = pipeline.get_bus()
 bus.add_signal_watch()
+bus.set_title('B&G Player')
 
 msg = bus.timed_pop_filtered(
     Gst.CLOCK_TIME_NONE,
