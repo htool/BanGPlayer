@@ -127,7 +127,7 @@ Gst.init(None)
 
 pipeline = Gst.parse_launch('rtspsrc name=source latency=0 ! decodebin ! autovideosink')
 source = pipeline.get_by_name('source')
-source.props.location = 'rtsp://' + remoteIP + ':5554/screenmirror'
+source.props.location = 'rtsp://' + remoteIP + ':554/screenmirror'
 
 #launch = "rtspsrc location=rtsp://" + remoteIP + ":5554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
 #launch = "playbin uri=rtsp://localhost:8554/test uridecodebin0::source::latency=300 ! autovideosink"
