@@ -6,6 +6,7 @@ import sys
 import socket
 import time
 import base64
+import time
 
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,12 +15,35 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
-sendEvent = 0
+mouseEvent = 0
+keyboardEvent = 0
+pressRelease = 0
+opcode = 0
 
 packets = {
     'ping': 'AAYAAUQD18M=',
-    'auth': 'ACgAAwIAAAAAAGlQYWQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+    'auth': 'ACgAAwIAAAAAAGlQYWQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    'bla1': 'AAkABAIAAAAAAAE=',
+    'bla2': 'AAkABAIAAAAAAAE=',
+    'bla3': 'AAwQAV/x4TUEgQMNAgE=',
+    'bla4': 'AAwQAV/x4TYEeAL6AAE=',
+    'bla5': 'AAwQAV/x4TYEeAL6AgE='
 }
+
+keyCodes = {
+    'Escape': 25, # page
+    'm': 50, # menu
+    'Up': 78, # zoomin
+    'Down': 74, # zoomout
+    'p': 16, # power
+    'Return': 28, # enter
+    'c': 1, # cancel
+    'g': 34, # goto
+    'm': 45, # mark
+    'o': 44 # mob
+}
+
+print (keyCodes)
 
 def decode_ping(payload):
     pingid = int.from_bytes(payload, "big")
@@ -54,27 +78,64 @@ def touchbytes(t, x, y, tp, count):
     b = len(b).to_bytes(2, 'big') + b
     return b
 
+def keybytes(keycode, pressRelease):
+    opcode=0x1003
+    b = opcode.to_bytes(2, 'big') + keycode.to_bytes(4, 'big') + pressRelease.to_bytes(4, 'big')
+    b = len(b).to_bytes(2, 'big') + b
+    return b
+
 
 def on_event(pad, info):
-    global sendEvent
+    global mouseEvent
+    global keyboardEvent
     event = info.get_event()
     type = event.type
+    pressRelease = 0
+    keyboardEvent = 0
     if type == Gst.EventType.NAVIGATION:
-        struct = event.get_structure()
-        x = int(struct.get_double('pointer_x')[1])
-        y = int(struct.get_double('pointer_y')[1])
-        me = struct.get_string('event')
+        e_struct = event.get_structure()
+        me = e_struct.get_string('event')
+        
+        # Catching key presses
+        if me == 'key-press':
+          if e_struct.has_field('key'):
+            pressRelease = 1
+            keyboardEvent = 1
+
+        if me == 'key-release':
+          if e_struct.has_field('key'):
+            pressRelease = 0
+            keyboardEvent = 1
+ 
+        if keyboardEvent == 1:
+          key = e_struct.get_value('key')
+          try:
+            keycode = keyCodes[key]
+            print('Key event: %s %s' % (keycode, key))
+            b=keybytes(keycode, pressRelease)
+            try:
+              s.send(b)
+            except socket.error as err:
+              print ("Error sending data: %s" % err)
+          except:
+            print('Unmapped key')
 
         # Send event on press/release and move between press/release
         if me == 'mouse-button-press':
-            sendEvent = 1
+            x = int(e_struct.get_double('pointer_x')[1])
+            y = int(e_struct.get_double('pointer_y')[1])
+            mouseEvent = 1
             e = 0
         if me == 'mouse-button-release':
+            x = int(e_struct.get_double('pointer_x')[1])
+            y = int(e_struct.get_double('pointer_y')[1])
             e = 2
         if me == 'mouse-move':
+            x = int(e_struct.get_double('pointer_x')[1])
+            y = int(e_struct.get_double('pointer_y')[1])
             e = 1
 
-        if sendEvent == 1:
+        if mouseEvent == 1:
             print('Event: %s x: %d y: %d' % (e, x, y))
             b=touchbytes(int(time.time()),x,y,e,1)
             try:
@@ -83,7 +144,7 @@ def on_event(pad, info):
                 print ("Error sending data: %s" % err)
                 # sys.exit(1)
             if e == 2:
-                sendEvent = 0
+                mouseEvent = 0
 
     return Gst.PadProbeReturn.OK
 
@@ -110,15 +171,14 @@ except socket.error as err:
     sys.exit(1)
 
 
-time.sleep(0.5)
+time.sleep(1)
 print('Connecting to remotecontrold...')
 s.send(base64.b64decode(packets['ping']))
-#decode_ping_reply(s.recv(1024))
 time.sleep(1)
 print('Sending authenticate...')
 s.send(base64.b64decode(packets['auth']))
-#decode_authenticate(s.recv(1024))
 print('Connected')
+s.send(base64.b64decode(packets['bla1']))
 
 # initialize GStreamer
 Gst.init(None)
@@ -127,7 +187,7 @@ Gst.init(None)
 
 pipeline = Gst.parse_launch('rtspsrc name=source latency=0 ! decodebin ! autovideosink')
 source = pipeline.get_by_name('source')
-source.props.location = 'rtsp://' + remoteIP + ':554/screenmirror'
+source.props.location = 'rtsp://' + remoteIP + ':5554/screenmirror'
 
 #launch = "rtspsrc location=rtsp://" + remoteIP + ":5554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
 #launch = "playbin uri=rtsp://localhost:8554/test uridecodebin0::source::latency=300 ! autovideosink"
@@ -149,7 +209,7 @@ pad.add_probe(Gst.PadProbeType.EVENT_UPSTREAM, on_event)
 # wait until EOS or error
 bus = pipeline.get_bus()
 bus.add_signal_watch()
-bus.set_title('B&G Player')
+# bus.set_title('B&G Player')
 
 msg = bus.timed_pop_filtered(
     Gst.CLOCK_TIME_NONE,
