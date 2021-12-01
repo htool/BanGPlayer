@@ -3,6 +3,7 @@
 Connect to your B&G Vulcan/Zeus from a laptop and use your mouse to control it.
 For a new connection you'll need to 'ack' the new connectioned on the MFD.
 
+```
 $ ./BanGPlayer.py -h
 usage: BanGPlayer.py [-h] [-c REMOTECONTROLD_PORT] [-r RSTP_PORT] [-d] IP
 
@@ -18,4 +19,4 @@ optional arguments:
   -r RSTP_PORT, --rstp-port RSTP_PORT
                         rstp port number (554)
   -d, --debug           debug mode
-
+```
