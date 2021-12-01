@@ -7,10 +7,9 @@ import socket
 import time
 import base64
 import time
-
+import argparse
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
@@ -19,6 +18,13 @@ mouseEvent = 0
 keyboardEvent = 0
 pressRelease = 0
 opcode = 0
+
+parser = argparse.ArgumentParser(description='Remote display for B&G Vulcan/Zeus MFD')
+parser.add_argument('IP', type=str, help='IP adress of Zeus/Vulcan MFD')
+parser.add_argument('-c', '--remotecontrold-port', default=6633, help='remotecontrold port number (6633)')
+parser.add_argument('-r', '--rstp-port', default=554, help='rstp port number (554)')
+parser.add_argument('-d', '--logging.debug', help='logging.debug info')
+args = vars(parser.parse_args())
 
 packets = {
     'ping': 'AAYAAUQD18M=',
@@ -39,11 +45,11 @@ keyCodes = {
     'Return': 28, # enter
     'c': 1, # cancel
     'g': 34, # goto
-    'm': 45, # mark
+    'a': 45, # mark
     'o': 44 # mob
 }
 
-print (keyCodes)
+print ("Mapped keycodes:\nEscape\t\tPage\nm\t\tMenu\nArrow Up\tZoom in\nArrow Down\tZoom out\np\t\tPower\nEnter\t\tEnter\nc\t\tCancel\ng\t\tGoto\na\t\tmark\no\t\tMOB\n")
 
 def decode_ping(payload):
     pingid = int.from_bytes(payload, "big")
@@ -111,14 +117,14 @@ def on_event(pad, info):
           key = e_struct.get_value('key')
           try:
             keycode = keyCodes[key]
-            print('Key event: %s %s' % (keycode, key))
+            logging.debug('Key event: %s %s' % (keycode, key))
             b=keybytes(keycode, pressRelease)
             try:
               s.send(b)
             except socket.error as err:
-              print ("Error sending data: %s" % err)
+              logging.debug("Error sending data: %s" % err)
           except:
-            print('Unmapped key')
+            logging.debug('Unmapped key')
 
         # Send event on press/release and move between press/release
         if me == 'mouse-button-press':
@@ -136,12 +142,12 @@ def on_event(pad, info):
             e = 1
 
         if mouseEvent == 1:
-            print('Event: %s x: %d y: %d' % (e, x, y))
+            logging.debug('Event: %s x: %d y: %d' % (e, x, y))
             b=touchbytes(int(time.time()),x,y,e,1)
             try:
                 s.send(b)
             except socket.error as err:
-                print ("Error sending data: %s" % err)
+                print("Error sending data: %s" % err)
                 # sys.exit(1)
             if e == 2:
                 mouseEvent = 0
@@ -149,11 +155,6 @@ def on_event(pad, info):
     return Gst.PadProbeReturn.OK
 
 
-if len(sys.argv) != 2:
-    print('Usage: ' + sys.argv[0] + ' <B&G MFD ip>')
-    sys.exit(0)
-
-remoteIP = sys.argv[1]
 
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -162,7 +163,7 @@ except socket.error as err:
     sys.exit(1)
 
 try:
-    s.connect((remoteIP, 6633))
+    s.connect((args['IP'], args['remotecontrold_port']))
 except socket.gaierror as err:
     print ("Address-related error connecting to server: %s" % err)
     sys.exit(1)
@@ -172,24 +173,23 @@ except socket.error as err:
 
 
 time.sleep(1)
-print('Connecting to remotecontrold...')
+logging.debug('Connecting to remotecontrold...')
 s.send(base64.b64decode(packets['ping']))
 time.sleep(1)
-print('Sending authenticate...')
+logging.debug('Sending authenticate...')
 s.send(base64.b64decode(packets['auth']))
-print('Connected')
+logging.debug('Connected')
 s.send(base64.b64decode(packets['bla1']))
 
 # initialize GStreamer
 Gst.init(None)
 # build the pipeline
 
-
 pipeline = Gst.parse_launch('rtspsrc name=source latency=0 ! decodebin ! autovideosink')
 source = pipeline.get_by_name('source')
-source.props.location = 'rtsp://' + remoteIP + ':5554/screenmirror'
+source.props.location = 'rtsp://' + args['IP'] + ':' + str(args['rstp_port']) + '/screenmirror'
 
-#launch = "rtspsrc location=rtsp://" + remoteIP + ":5554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
+#launch = "rtspsrc location=rtsp://" + args['IP'] + ":5554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
 #launch = "playbin uri=rtsp://localhost:8554/test uridecodebin0::source::latency=300 ! autovideosink"
 #    "videotestsrc ! navigationtest ! videoconvert ! ximagesink"
 #    "videotestsrc pattern=snow ! video/x-raw,width=1280,height=800 ! autovideosink"
