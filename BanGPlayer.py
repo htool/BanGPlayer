@@ -9,7 +9,7 @@ import base64
 import time
 import argparse
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser(description='Remote display for B&G Vulcan/Zeus
 parser.add_argument('IP', type=str, help='IP adress of Zeus/Vulcan MFD')
 parser.add_argument('-c', '--remotecontrold-port', default=6633, help='remotecontrold port number (6633)')
 parser.add_argument('-r', '--rstp-port', default=554, help='rstp port number (554)')
-parser.add_argument('-d', '--logging.debug', help='logging.debug info')
+parser.add_argument('-d', '--debug', action='store_true', help='debug mode')
 args = vars(parser.parse_args())
 
 packets = {
@@ -35,6 +35,9 @@ packets = {
     'bla4': 'AAwQAV/x4TYEeAL6AAE=',
     'bla5': 'AAwQAV/x4TYEeAL6AgE='
 }
+
+if args['debug']:
+  logging.getLogger().setLevel(logging.DEBUG)
 
 keyCodes = {
     'Escape': 25, # page
@@ -49,7 +52,7 @@ keyCodes = {
     'o': 44 # mob
 }
 
-print ("Mapped keycodes:\nEscape\t\tPage\nm\t\tMenu\nArrow Up\tZoom in\nArrow Down\tZoom out\np\t\tPower\nEnter\t\tEnter\nc\t\tCancel\ng\t\tGoto\na\t\tmark\no\t\tMOB\n")
+print ("Mapped keycodes:\nEscape\t\tPage\nm\t\tMenu\nArrow Up\tZoom in\nArrow Down\tZoom out\np\t\tPower\nEnter\t\tEnter\nc\t\tCancel\ng\t\tGoto\na\t\tMark\no\t\tMOB\n")
 
 def decode_ping(payload):
     pingid = int.from_bytes(payload, "big")
@@ -115,9 +118,10 @@ def on_event(pad, info):
  
         if keyboardEvent == 1:
           key = e_struct.get_value('key')
+          logging.debug('Key event: %s' % key)
           try:
             keycode = keyCodes[key]
-            logging.debug('Key event: %s %s' % (keycode, key))
+            logging.debug('Keycode: %s' % keycode)
             b=keybytes(keycode, pressRelease)
             try:
               s.send(b)
