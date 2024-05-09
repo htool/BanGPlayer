@@ -20,3 +20,12 @@ optional arguments:
                         rstp port number (554)
   -d, --debug           debug mode
 ```
+
+# Issues
+On Ubunutu at some point I got a black screen. VLC also showed a black screen.
+Using a SNAP version of VLC made it work for VLC.
+
+$ apt-gegt remove gstreamer1.0-vaapi
+
+was required to make it work again for this script.
+
