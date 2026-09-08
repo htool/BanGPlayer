@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-import gi
 import logging
 import sys
 import socket
@@ -8,11 +7,9 @@ import time
 import base64
 import time
 import argparse
+import gofree
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-gi.require_version('Gst', '1.0')
-from gi.repository import Gst
 
 mouseEvent = 0
 keyboardEvent = 0
@@ -20,9 +17,10 @@ pressRelease = 0
 opcode = 0
 
 parser = argparse.ArgumentParser(description='Remote display for B&G Vulcan/Zeus MFD')
-parser.add_argument('IP', type=str, help='IP adress of Zeus/Vulcan MFD')
+gofree.add_target_args(parser)
 parser.add_argument('-c', '--remotecontrold-port', default=6633, help='remotecontrold port number (6633)')
 parser.add_argument('-r', '--rstp-port', default=554, help='rstp port number (554)')
+parser.add_argument('-s', '--slow', action='store_true', help='buffer more and drop frames for a slower connection')
 parser.add_argument('-d', '--debug', action='store_true', help='debug mode')
 args = vars(parser.parse_args())
 
@@ -51,8 +49,6 @@ keyCodes = {
     'a': 45, # mark
     'o': 44 # mob
 }
-
-print ("Mapped keycodes:\nEscape\t\tPage\nm\t\tMenu\nArrow Up\tZoom in\nArrow Down\tZoom out\np\t\tPower\nEnter\t\tEnter\nc\t\tCancel\ng\t\tGoto\na\t\tMark\no\t\tMOB\n")
 
 def decode_ping(payload):
     pingid = int.from_bytes(payload, "big")
@@ -93,6 +89,16 @@ def keybytes(keycode, pressRelease):
     b = len(b).to_bytes(2, 'big') + b
     return b
 
+if args['discover']:
+    gofree.discover_and_exit()
+
+mfd_ip = gofree.resolve(args['target'])
+
+print ("Mapped keycodes:\nEscape\t\tPage\nm\t\tMenu\nArrow Up\tZoom in\nArrow Down\tZoom out\np\t\tPower\nEnter\t\tEnter\nc\t\tCancel\ng\t\tGoto\na\t\tMark\no\t\tMOB\n")
+
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst, GLib
 
 def on_event(pad, info):
     global mouseEvent
@@ -167,7 +173,7 @@ except socket.error as err:
     sys.exit(1)
 
 try:
-    s.connect((args['IP'], args['remotecontrold_port']))
+    s.connect((mfd_ip, args['remotecontrold_port']))
 except socket.gaierror as err:
     print ("Address-related error connecting to server: %s" % err)
     sys.exit(1)
@@ -186,12 +192,32 @@ logging.debug('Connected')
 s.send(base64.b64decode(packets['bla1']))
 
 # initialize GStreamer
+WINDOW_TITLE = 'B&G / Simrad screen'
+GLib.set_prgname('BanGPlayer')
+GLib.set_application_name(WINDOW_TITLE)
 Gst.init(None)
 # build the pipeline
 
-pipeline = Gst.parse_launch('rtspsrc name=source latency=0 ! decodebin ! autovideosink')
+if args['slow']:
+    logging.debug('Using slow-connection pipeline')
+    pipeline = Gst.parse_launch(
+        'rtspsrc name=source '
+        'latency=800 '
+        'drop-on-latency=true '
+        'protocols=tcp '
+        'buffer-mode=auto '
+        '! queue max-size-buffers=0 max-size-time=2000000000 leaky=downstream '
+        '! decodebin name=decoder '
+        '! videorate drop-only=true max-rate=8 '
+        '! videoconvert '
+        '! autovideosink sync=false'
+    )
+else:
+    pipeline = Gst.parse_launch(
+        'rtspsrc name=source latency=0 ! decodebin name=decoder ! autovideosink'
+    )
 source = pipeline.get_by_name('source')
-source.props.location = 'rtsp://' + args['IP'] + ':' + str(args['rstp_port']) + '/screenmirror'
+source.props.location = 'rtsp://' + mfd_ip + ':' + str(args['rstp_port']) + '/screenmirror'
 
 #launch = "rtspsrc location=rtsp://" + args['IP'] + ":5554/screenmirror latency=1 !  rtph264depay ! h264parse ! autovideosink"
 #launch = "playbin uri=rtsp://localhost:8554/test uridecodebin0::source::latency=300 ! autovideosink"
@@ -202,18 +228,17 @@ source.props.location = 'rtsp://' + args['IP'] + ':' + str(args['rstp_port']) + 
 
 pipeline.set_state(Gst.State.PLAYING)
 
-# for some reason no events from the vaapisink bin (first in the list), but the second bin (vaapih264dec) works OK
-bin = pipeline.children[1]
-# sink = 0, src = 1
-pad = bin.pads[0]
-#pad = pipeline.children[0]
-
-pad.add_probe(Gst.PadProbeType.EVENT_UPSTREAM, on_event)
+# Navigation events travel upstream from the videosink; probe decodebin so
+# both the default and slow pipelines see mouse/keyboard events.
+decoder = pipeline.get_by_name('decoder')
+pad = (decoder.sinkpads[0] if decoder.sinkpads else
+       (decoder.pads[0] if decoder.pads else None))
+if pad is not None:
+    pad.add_probe(Gst.PadProbeType.EVENT_UPSTREAM, on_event)
 
 # wait until EOS or error
 bus = pipeline.get_bus()
 bus.add_signal_watch()
-# bus.set_title('B&G Player')
 
 msg = bus.timed_pop_filtered(
     Gst.CLOCK_TIME_NONE,
