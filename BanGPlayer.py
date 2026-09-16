@@ -20,7 +20,10 @@ parser = argparse.ArgumentParser(description='Remote display for B&G Vulcan/Zeus
 gofree.add_target_args(parser)
 parser.add_argument('-c', '--remotecontrold-port', default=6633, help='remotecontrold port number (6633)')
 parser.add_argument('-r', '--rstp-port', default=554, help='rstp port number (554)')
-parser.add_argument('-s', '--slow', action='store_true', help='buffer more and drop frames for a slower connection')
+parser.add_argument('-s', '--slow', action='store_true',
+                    help='extra buffering and 8 fps for a very slow link')
+parser.add_argument('--lan', action='store_true',
+                    help='force LAN UDP pipeline (no TCP, latency=0)')
 parser.add_argument('-d', '--debug', action='store_true', help='debug mode')
 args = vars(parser.parse_args())
 
@@ -197,10 +200,21 @@ GLib.set_prgname('BanGPlayer')
 GLib.set_application_name(WINDOW_TITLE)
 Gst.init(None)
 # build the pipeline
+# LAN: UDP + latency=0. Remote (Tailscale/Starlink): TCP + jitter buffer,
+# no fps cap. --slow keeps the old 8 fps path.
 
-if args['slow']:
-    logging.debug('Using slow-connection pipeline')
-    pipeline = Gst.parse_launch(
+def choose_pipeline_mode():
+    if args['slow']:
+        return 'slow'
+    if args['lan']:
+        return 'lan'
+    if gofree.is_local_lan(mfd_ip):
+        return 'lan'
+    return 'remote'
+
+
+PIPELINES = {
+    'slow': (
         'rtspsrc name=source '
         'latency=800 '
         'drop-on-latency=true '
@@ -211,11 +225,33 @@ if args['slow']:
         '! videorate drop-only=true max-rate=8 '
         '! videoconvert '
         '! autovideosink sync=false'
-    )
-else:
-    pipeline = Gst.parse_launch(
+    ),
+    'remote': (
+        'rtspsrc name=source '
+        'latency=400 '
+        'drop-on-latency=true '
+        'protocols=tcp '
+        'buffer-mode=auto '
+        '! queue max-size-buffers=0 max-size-time=1000000000 leaky=downstream '
+        '! decodebin name=decoder '
+        '! videoconvert '
+        '! autovideosink sync=false'
+    ),
+    'lan': (
         'rtspsrc name=source latency=0 ! decodebin name=decoder ! autovideosink'
-    )
+    ),
+}
+
+mode = choose_pipeline_mode()
+logging.info(
+    'RTSP %s pipeline to %s (%s)',
+    mode,
+    mfd_ip,
+    'TCP 8 fps' if mode == 'slow'
+    else 'TCP latency=400ms' if mode == 'remote'
+    else 'UDP latency=0',
+)
+pipeline = Gst.parse_launch(PIPELINES[mode])
 source = pipeline.get_by_name('source')
 source.props.location = 'rtsp://' + mfd_ip + ':' + str(args['rstp_port']) + '/screenmirror'
 
@@ -229,7 +265,7 @@ source.props.location = 'rtsp://' + mfd_ip + ':' + str(args['rstp_port']) + '/sc
 pipeline.set_state(Gst.State.PLAYING)
 
 # Navigation events travel upstream from the videosink; probe decodebin so
-# both the default and slow pipelines see mouse/keyboard events.
+# LAN, remote, and slow pipelines all see mouse/keyboard events.
 decoder = pipeline.get_by_name('decoder')
 pad = (decoder.sinkpads[0] if decoder.sinkpads else
        (decoder.pads[0] if decoder.pads else None))

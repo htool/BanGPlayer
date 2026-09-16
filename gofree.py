@@ -2,10 +2,12 @@
 """Navico GoFree multicast discovery (239.2.1.1:2052)."""
 
 import fcntl
+import ipaddress
 import json
 import logging
 import socket
 import struct
+import subprocess
 import sys
 import time
 
@@ -109,6 +111,68 @@ def is_ipv4(value):
         return True
     except socket.error:
         return False
+
+
+# Skip tunnels/containers; Tailscale CGNAT means the MFD is not on L2.
+_SKIP_IFACE_PREFIXES = (
+    'lo', 'docker', 'br-', 'veth', 'vcan', 'virbr', 'tailscale', 'tun', 'wg',
+)
+_TAILSCALE_CGNAT = ipaddress.ip_network('100.64.0.0/10')
+_SIOCGIFADDR = 0x8915
+_SIOCGIFNETMASK = 0x891b
+
+
+def _route_via_tailscale(ip):
+    try:
+        out = subprocess.check_output(
+            ['ip', 'route', 'get', ip],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return 'tailscale' in out
+
+
+def _on_local_iface_subnet(addr):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        for _idx, name in socket.if_nameindex():
+            if name.startswith(_SKIP_IFACE_PREFIXES):
+                continue
+            packed = struct.pack('256s', name.encode('utf-8')[:15])
+            try:
+                ifreq = fcntl.ioctl(sock.fileno(), _SIOCGIFADDR, packed)
+                nreq = fcntl.ioctl(sock.fileno(), _SIOCGIFNETMASK, packed)
+            except OSError:
+                continue
+            ip = socket.inet_ntoa(ifreq[20:24])
+            mask = socket.inet_ntoa(nreq[20:24])
+            if not ip or ip.startswith('127.'):
+                continue
+            try:
+                local = ipaddress.ip_address(ip)
+                if local in _TAILSCALE_CGNAT:
+                    continue
+                net = ipaddress.ip_network('%s/%s' % (ip, mask), strict=False)
+            except ValueError:
+                continue
+            if addr in net:
+                return True
+    finally:
+        sock.close()
+    return False
+
+
+def is_local_lan(ip):
+    """True if the MFD is on a non-Tailscale local interface, so UDP RTSP is safe."""
+    if not ip or not is_ipv4(ip):
+        return False
+    addr = ipaddress.ip_address(ip)
+    if addr in _TAILSCALE_CGNAT:
+        return False
+    if _route_via_tailscale(ip):
+        return False
+    return _on_local_iface_subnet(addr)
 
 
 def print_devices(devices):

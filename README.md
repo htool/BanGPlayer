@@ -7,10 +7,16 @@ On the same LAN, omit the address to discover the MFD via GoFree. If several
 answer, pass a GoFree name or IP. `./screengrab.py` uses the same discovery
 and writes a JPEG of the RTSP screenmirror (default `zeus.jpg`).
 
+Off-LAN (Tailscale/Starlink from hop) the player automatically uses RTSP
+over TCP with a 400 ms jitter buffer. That avoids green H.264 artifacts
+from UDP packet loss through Tailscale's 1280-byte MTU. On the boat LAN
+it still uses UDP with `latency=0`. Use `-s` to cap at 8 fps, or `--lan`
+to force the UDP path.
+
 ```
 $ ./BanGPlayer.py -h
 usage: BanGPlayer.py [-h] [--discover] [-c REMOTECONTROLD_PORT] [-r RSTP_PORT]
-                     [-s] [-d]
+                     [-s] [--lan] [-d]
                      [IP_OR_NAME]
 
 Remote display for B&G Vulcan/Zeus MFD
@@ -26,7 +32,8 @@ options:
                         remotecontrold port number (6633)
   -r RSTP_PORT, --rstp-port RSTP_PORT
                         rstp port number (554)
-  -s, --slow            buffer more and drop frames for a slower connection
+  -s, --slow            extra buffering and 8 fps for a very slow link
+  --lan                 force LAN UDP pipeline (no TCP, latency=0)
   -d, --debug           debug mode
 ```
 
